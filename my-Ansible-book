@@ -5,3 +5,5 @@
  ansible -m copy -a "src=master.gitconfig dest=~/.gitconfig" --check localhost
 # also can use --diff to see changed to be made !
  ansible -m copy -a "src=master.gitconfig dest=~/.gitconfig" --check --diff localhost
+# can use to get information on copy etc...
+ansible-doc copy | bat --language yml
