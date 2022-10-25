@@ -1,1 +1,7 @@
+
+# Ad-Hoc
  ansible -m copy -a "src=master.gitconfig dest=~/.gitconfig" localhost
+# use --check to only checking for changing
+ ansible -m copy -a "src=master.gitconfig dest=~/.gitconfig" --check localhost
+# also can use --diff to see changed to be made !
+ ansible -m copy -a "src=master.gitconfig dest=~/.gitconfig" --check --diff localhost
