@@ -1,0 +1,4 @@
+
+# ansible -m copy -a "src=master.gitconfig dest=~/.gitconfig" localhost
+
+name: Ensure
