@@ -8,8 +8,13 @@ Install base pkgs:
   dnf -y install bash-completion vim tmux
 
 Disable:
+
 - Selinux ( required reboot !!! )
+	 	setenforce 0
+		vim /etc/selinux/config.
+			--> change to SELINUX=disabled
 - Firewalld
+		systemctl disable firewalld.service
 
 Add EPEL repository
   dnf -y install epel-release
@@ -22,6 +27,22 @@ Enable tftp service
 
 Install http pkg
   dnf -y install httpd
+
+Add Second HDD to the VM to hold the ISO ...
+needs reboot 
+  init 6
+  ls /dev/sd*
+  lsblk
+  blkid
+  mkfs -t ext4 /dev/sdb
+  or can use mkfs.ext4 /dev/sdab
+  fdisk -l
+blkid /dev/sdb
+  vim /etc/fstab
+add the following 
+  UUID=<<UUID>>      /var/www/html      ext4    defaults    0       0  
+reboot to make sure mount is persistant
+
 
 ( optional ) mount big disk to /var/www/html 
 	     min: 20GB
@@ -44,6 +65,10 @@ Put DVD and checksum to rocky/8.5/iso
   
   curl -LO https://download.rockylinux.org/pub/rocky/8.5/isos/x86_64/Rocky-8.5-x86_64-dvd1.iso
   curl -LO https://download.rockylinux.org/pub/rocky/8.5/isos/x86_64/CHECKSUM
+  curl -LO https://download.rockylinux.org/pub/rocky/9/isos/x86_64/Rocky-9.0-20220808.0-x86_64-dvd.iso
+  curl -LO https://download.rockylinux.org/pub/rocky/9/isos/x86_64/CHECKSUM
+
+
   
 Mount DVD under rocky/8.5/url
   mount -o ro rocky/8.5/iso/Rocky-8.5-x86_64-dvd1.iso rocky/8.5/url/
