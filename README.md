@@ -7,4 +7,8 @@ git commit -m "
 git push
 # pulling latest versions . also git pull <REMOTE> <name-of-branch>
 git pull
+#
+#
+#
+
 
