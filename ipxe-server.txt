@@ -1,0 +1,324 @@
+iPXE server
+
+Base OS: RockyLinux
+
+Minimal install
+
+Install base pkgs:
+  dnf -y install bash-completion vim tmux
+
+Disable:
+- Selinux ( required reboot !!! )
+- Firewalld
+
+Add EPEL repository
+  dnf -y install epel-release
+
+Install tftp pkg
+  dnf -y install tftp-server
+
+Enable tftp service
+  systemctl enable --now tftp
+
+Install http pkg
+  dnf -y install httpd
+
+( optional ) mount big disk to /var/www/html 
+	     min: 20GB
+	     max: 200GB
+
+Create sub directories under /var/www/html
+  cd /var/www/html
+  mkdir -p rocky/8.5/{iso,ks,url,repo,driver,addon}
+
+  Note:
+  iso	  => iso images
+  ks	  => kickstart files
+  url	  => base iso mounted
+  repo	  => all enabled & sync repos
+  drivers => required driver like MOFED, NVIDIA ...
+  addon	  => for any kind
+  
+Put DVD and checksum to rocky/8.5/iso 
+  cd rocky/8.5/iso/
+  
+  curl -LO https://download.rockylinux.org/pub/rocky/8.5/isos/x86_64/Rocky-8.5-x86_64-dvd1.iso
+  curl -LO https://download.rockylinux.org/pub/rocky/8.5/isos/x86_64/CHECKSUM
+  
+Mount DVD under rocky/8.5/url
+  mount -o ro rocky/8.5/iso/Rocky-8.5-x86_64-dvd1.iso rocky/8.5/url/
+  
+Install ipxe pkg
+  dnf -y install ipxe-bootimgs
+
+Copy ipxe chainload roms to tftp dir
+  cp /usr/share/ipxe/ipxe-x86_64.efi /var/lib/tftpboot/
+  cp /usr/share/ipxe/undionly.kpxe /var/lib/tftpboot/
+
+Create ipxe script
+  mkdir /var/www/html/ipxe
+  vim /var/www/html/ipxe/main.ipxe
+------------------------------
+#!ipxe
+# START
+
+# define web root directory
+set url http://APACHE-IP/rocky/8.5/url
+set ks  http://APACHE-IP/rocky/8.5/ks
+
+# Main Menu
+#!ipxe
+
+# define web root directory
+set url http://10.0.0.2/rocky/8.5/url
+set ks  http://10.0.0.2/rocky/8.5/ks
+
+# Main Menu
+menu                  iPXE boot menu 
+
+item --gap --	      My MAC Address: ${net0/mac:hex}
+item
+item --gap --         Rocky Linux
+item		      	
+item --gap --	      General Install
+item rocky85          ---> Rocky 8.5
+item --gap --
+item
+item --gap --	      Kickstart Install
+item rocky85ks        ---> Rocky 8.5 Default Kickstart
+item --gap --
+item
+item --gap --         Tools and Options
+item exit             ---> Exit and Boot from DIKS 
+item config	      ---> Show  iPXE config 
+item shell            ---> Enter iPXE shell 
+item reboot           ---> Reboot   Computer 
+
+choose target 
+goto ${target} 
+
+# Rocky Linux 8.5
+:rocky85
+kernel ${url}/images/pxeboot/vmlinuz initrd=initrd.img
+inst.repo=${url} 
+initrd ${url}/images/pxeboot/initrd.img 
+boot
+
+# check if efi or bios
+:rocky85ks
+iseq ${platform} efi && goto rocky85ks_efi || goto rocky85ks_bios
+
+# efi ks install
+:rocky85ks_efi
+kernel ${url}/images/pxeboot/vmlinuz initrd=initrd.img inst.repo=${url} inst.ks=${ks}/${net0/mac:hex}.cfg ip=dhcp
+initrd ${url}/images/pxeboot/initrd.img 
+boot
+
+# bios ks install
+:rocky85ks_bios
+kernel ${url}/images/pxeboot/vmlinuz initrd=initrd.img inst.repo=${url} inst.ks=${ks}/${net0/mac:hex}.cfg ip=dhcp
+initrd ${url}/images/pxeboot/initrd.img 
+boot
+ 
+# Tools
+:config
+config
+
+:reboot 
+reboot 
+
+:poweroff 
+poweroff 
+
+:shell 
+shell 
+
+:exit 
+exit 0
+
+# END
+------------------------------
+
+Install dhcp pkg
+  dnf -y install dhcp-server
+  
+Edit dhcpd.conf
+
+------------------------------
+# START
+option space ipxe;
+option ipxe.no-pxedhcp code 176 = unsigned integer 8; 
+option ipxe.no-pxedhcp 1; 
+option client-architecture code 93 = unsigned integer 16;
+
+ddns-update-style interim;
+authoritative;
+
+max-lease-time 86400;
+default-lease-time 3600;
+
+#option domain-name "harel.lab";
+#option domain-name-servers infra.harel.lab;
+option routers 10.0.0.1;
+
+subnet 10.0.0.0 netmask 255.255.255.0 {
+  # first ip pool
+  pool {
+    range 10.0.0.200 10.0.0.250;
+    max-lease-time 7200;
+    default-lease-time 300;
+
+    allow unknown-clients;
+
+    # tftp ip
+    next-server 10.0.0.2;
+
+    if exists user-class and option user-class = "iPXE" { 
+        filename = "main.ipxe"; 
+
+    } else if option client-architecture = 00:00 {
+        filename = "undionly.kpxe"; 
+
+    } else if option client-architecture = 00:07 {
+        filename = "ipxe-x86_64.efi"; 
+
+    } else if option client-architecture = 00:09 {
+        filename = "ipxe-x86_64.efi"; 
+    }
+  }
+
+  # second ip pool
+  #pool {
+  #  range 10.0.0.100 10.0.0.199;
+  #  max-lease-time N;
+  #  default-lease-time M;
+  #}
+}
+
+## fixed host address
+#group {
+#  group_params;
+#
+#  host host_name {
+#    fixed-address hostname.domainname;
+#    hardware ethernet MAC;
+#  }
+#}
+# END
+------------------------------
+
+Edit dhcpd.service file
+  vim /usr/lib/systemd/system/dhcpd.service
+
+  -ExecStart=/usr/sbin/dhcpd -f -cf /etc/dhcp/dhcpd.conf -user dhcpd -group dhcpd --no-pid $DHCPDARGS
+  +ExecStart=/usr/sbin/dhcpd -f -cf /etc/dhcp/dhcpd.conf -user dhcpd -group dhcpd --no-pid $DHCPDARGS enp2s0
+
+Reload unit
+  systemctl daemon-reload
+
+Start end enable dhcp service
+  systemctl enable --now dhcpd.service
+
+### Now your are ready for booting the compute nodes
+Make sure whet network boot is first in bios
+
+NOTE:
+  Then iPXE screen will appeared you will see the MAC address of the machine.
+
+  1. copy same mac address from /var/lib/dhcpd/dhcpd.lease file
+  2. copy from bios.cfg or uefi.cfg to compute node kickstart
+  3. start kickstart installation
+
+  example:
+    [root@pxe ks]# pwd
+    /var/www/html/rocky/8.5/ks
+    [root@pxe ks]# ls -l
+    total 12
+    -rw-r--r-- 1 root root 1717 May 27 16:13 52:54:00:6a:fa:79.cfg
+    -rw-r--r-- 1 root root 1717 May 27 16:12 bios.cfg
+    lrwxrwxrwx 1 root root   21 May 27 16:15 node1 -> 52:54:00:6a:fa:79.cfg
+    -rw-r--r-- 1 root root 1732 May 27 16:10 uefi.cfg
+
+
+  Fill free to adopt kickstart file for node ,especially 'network' and 'part' 
+
+Kickstart example
+
+bios 
+--------------------------------------------------
+#version=RHEL8
+text
+
+url --url="http://10.0.0.2/rocky/8.5/url"
+
+repo --name="BaseOS" --baseurl="http://10.0.0.2/rocky/8.5/url/BaseOS/"
+repo --name="AppStream" --baseurl="http://10.0.0.2/rocky/8.5/url/AppStream/"
+#repo --name="OpenHPC" --baseurl=
+#repo --name="EPEL" --baseurl
+
+%packages
+@^minimal-environment
+bash-completion
+vim
+tmux
+tar
+gzip
+kexec-tools
+
+%end
+
+# Keyboard layouts
+keyboard --xlayouts='us'
+
+# System language
+lang en_US.UTF-8
+
+# Network information
+network  --bootproto=static --noipv6 --onboot=on --activate --hostname=HOST --ip=IP --netmask=MASK --gateway=GW --nameserver=DNS1,DNS2 --device=MAC
+
+# Disable some things
+firstboot --disable
+selinux --disable
+firewall --disable
+
+# Partition clearing information
+clearpart --all --initlabel
+
+# Disk partitioning information
+part biosboot --size=2
+part /boot --fstype="xfs" --size=1024
+part pv.01 --fstype="lvmpv" --size=1 --grow
+
+volgroup system --pesize=4096 pv.01
+
+logvol /    --fstype="xfs"  --size=1    --maxsize=10240 --grow --name=root --vgname=system
+logvol /var --fstype="xfs"  --size=4096 --name=var  --vgname=system
+logvol /tmp --fstype="xfs"  --size=4096 --name=tmp  --vgname=system
+logvol swap --fstype="swap" --size=2048 --name=swap --vgname=system
+
+# System timezone
+timezone Asia/Jerusalem --isUtc --ntpservers="NTP1,NTP2"
+
+#Root password
+# default harel password 'P@ssw0rd'
+rootpw --iscrypted $6$9FBbo3ZRF7fLsXDs$eTjFGSWm/AEGhQfvRO88Z2ZnYm/AJzXH3onFpCGuVIny/qvgF1SAERr5265RGd7uZN.S9j5oruWurm/Jh0twP/
+
+# SSH key
+sshkey --username=root "replace with ssh public key from ipxe server"
+
+# reboot after install
+reboot
+
+%addon com_redhat_kdump --disable
+
+%end
+
+%post
+%end
+
+%anaconda
+pwpolicy root --minlen=6 --minquality=1 --notstrict --nochanges --notempty
+pwpolicy user --minlen=6 --minquality=1 --notstrict --nochanges --emptyok
+pwpolicy luks --minlen=6 --minquality=1 --notstrict --nochanges --notempty
+%end
+--------------------------------------------------
